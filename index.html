@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ランダムポケモン図鑑</title>
+  <meta name="description" content="タイプ別・名前検索でランダムにポケモンを表示できるインタラクティブな図鑑アプリ">
+  <meta property="og:type"        content="website">
+  <meta property="og:title"       content="ランダムポケモン図鑑">
+  <meta property="og:description" content="タイプ別・名前検索でランダムにポケモンを表示できるインタラクティブな図鑑アプリ">
+  <meta property="og:image"       content="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png">
+  <meta property="og:url"         content="https://pokemon-app-steel-nine.vercel.app">
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:title"       content="ランダムポケモン図鑑">
+  <meta name="twitter:description" content="タイプ別・名前検索でランダムにポケモンを表示できるインタラクティブな図鑑アプリ">
+  <meta name="twitter:image"       content="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -63,22 +73,41 @@
       letter-spacing: 4px; text-transform: uppercase;
     }
 
-    /* ── タイプフィルター ── */
-    #type-filters {
-      display: flex; flex-wrap: wrap; gap: 7px; justify-content: center;
-      max-width: 700px; width: 100%; margin-bottom: 30px; position: relative; z-index: 1;
+    /* ── タイプセレクター ── */
+    #type-filter-wrap {
+      position: relative; width: 340px; max-width: 100%;
+      margin-bottom: 22px; z-index: 5;
     }
 
-    .type-btn {
-      padding: 6px 14px; border-radius: 20px; border: 1.5px solid transparent;
-      cursor: pointer; font-size: 0.79rem; font-weight: 800;
-      font-family: 'Nunito', sans-serif;
-      transition: all .18s; opacity: .55; letter-spacing: .4px;
+    .select-type-dot {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      width: 11px; height: 11px; border-radius: 50%;
+      background: #3a3d52; pointer-events: none;
+      transition: background .3s; border: 1.5px solid rgba(255,255,255,.2);
     }
-    .type-btn:hover { opacity: 1; transform: scale(1.1) translateY(-2px); }
-    .type-btn.active {
-      opacity: 1; border-color: rgba(255,255,255,.85);
-      box-shadow: 0 0 16px rgba(255,255,255,.25), inset 0 0 0 1px rgba(255,255,255,.2);
+
+    #type-select {
+      width: 100%; padding: 12px 40px 12px 36px;
+      background: rgba(255,255,255,.07);
+      border: 1.5px solid rgba(255,255,255,.12);
+      border-radius: 16px; color: #fff;
+      font-family: 'Nunito', sans-serif; font-size: .93rem; font-weight: 700;
+      outline: none; cursor: pointer;
+      appearance: none; -webkit-appearance: none;
+      transition: all .2s;
+    }
+
+    #type-select:focus {
+      border-color: var(--tc);
+      background: rgba(255,255,255,.1);
+      box-shadow: 0 0 0 3px rgba(var(--tc-r),var(--tc-g),var(--tc-b),.2);
+    }
+
+    #type-select option { background: #1c1f2e; color: #fff; }
+
+    .select-arrow {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      color: rgba(255,255,255,.4); pointer-events: none; font-size: .75rem;
     }
 
     /* ── カード外枠 ── */
@@ -409,8 +438,12 @@
   <div id="search-dropdown"></div>
 </div>
 
-<div id="type-filters">
-  <button class="type-btn active" data-type="all" style="background:#3a3d52;color:#fff;">すべて</button>
+<div id="type-filter-wrap">
+  <div class="select-type-dot"></div>
+  <select id="type-select">
+    <option value="all">すべてのタイプ</option>
+  </select>
+  <span class="select-arrow">▼</span>
 </div>
 
 <div id="pokemon-card">
@@ -610,16 +643,17 @@
 
   /* ═══ フィルター構築 ═══ */
   function buildTypeFilters() {
-    const c = document.getElementById('type-filters');
+    const sel = document.getElementById('type-select');
     for (const [name, d] of Object.entries(TYPE_DATA)) {
-      const btn = document.createElement('button');
-      btn.className = 'type-btn';
-      btn.dataset.type = name;
-      btn.textContent = d.ja;
-      btn.style.background = d.color;
-      btn.style.color = isLight(d.color) ? '#333' : '#fff';
-      c.appendChild(btn);
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = d.ja;
+      sel.appendChild(opt);
     }
+  }
+
+  function updateSelectDot(typeColor) {
+    document.querySelector('.select-type-dot').style.background = typeColor;
   }
 
   /* ═══ ランダムID取得 ═══ */
@@ -982,12 +1016,10 @@
   });
 
   /* ═══ その他イベント ═══ */
-  document.getElementById('type-filters').addEventListener('click', e => {
-    const btn = e.target.closest('.type-btn');
-    if (!btn) return;
-    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentType = btn.dataset.type;
+  document.getElementById('type-select').addEventListener('change', e => {
+    currentType = e.target.value;
+    const color = TYPE_DATA[currentType]?.color ?? '#3a3d52';
+    updateSelectDot(currentType === 'all' ? '#3a3d52' : color);
     showRandom();
   });
 
