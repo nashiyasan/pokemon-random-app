@@ -269,6 +269,49 @@
       color: #ff6b6b;
       font-size: 0.9rem;
     }
+
+    /* ── シリーズ情報 ── */
+    .series-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #ccc;
+      margin-top: 14px;
+      margin-bottom: 8px;
+    }
+
+    .first-gen-badge {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .first-gen-badge small {
+      font-size: 0.7rem;
+      font-weight: 500;
+      opacity: 0.88;
+    }
+
+    #pokemon-generations {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .gen-badge {
+      padding: 3px 10px;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -294,6 +337,8 @@
     <div id="pokemon-info"></div>
     <div class="stats-label">基本ステータス</div>
     <div id="pokemon-stats"></div>
+    <div class="series-label">初登場・登場シリーズ</div>
+    <div id="pokemon-series"></div>
   </div>
   <div id="error-msg">データの取得に失敗しました。再試行してください。</div>
 </div>
@@ -339,6 +384,32 @@
     'special-attack': '#9DB7F5',
     'special-defense':'#A7DB8D',
     speed:            '#FA92B2',
+  };
+
+  const GEN_ROMAN = { i:1, ii:2, iii:3, iv:4, v:5, vi:6, vii:7, viii:8, ix:9 };
+
+  const VERSION_TO_GEN = {
+    'red':1,'blue':1,'yellow':1,
+    'gold':2,'silver':2,'crystal':2,
+    'ruby':3,'sapphire':3,'firered':3,'leafgreen':3,'emerald':3,
+    'diamond':4,'pearl':4,'platinum':4,'heartgold':4,'soulsilver':4,
+    'black':5,'white':5,'black-2':5,'white-2':5,
+    'x':6,'y':6,'omegaruby':6,'alphasapphire':6,
+    'sun':7,'moon':7,'ultra-sun':7,'ultra-moon':7,'lets-go-pikachu':7,'lets-go-eevee':7,
+    'sword':8,'shield':8,'brilliant-diamond':8,'shining-pearl':8,'legends-arceus':8,
+    'scarlet':9,'violet':9,
+  };
+
+  const GEN_INFO = {
+    1: { name: '第1世代', games: '赤・緑・青・ピカチュウ版',        color: '#E74040' },
+    2: { name: '第2世代', games: '金・銀・クリスタル版',            color: '#B8920A' },
+    3: { name: '第3世代', games: 'RS・エメラルド・FR/LG',          color: '#E87038' },
+    4: { name: '第4世代', games: 'DP・プラチナ・HG/SS',            color: '#5070C8' },
+    5: { name: '第5世代', games: 'BW・BW2',                        color: '#606060' },
+    6: { name: '第6世代', games: 'X・Y・OR/AS',                    color: '#4488D0' },
+    7: { name: '第7世代', games: 'SM・US/UM・Let\'s Go',           color: '#E88000' },
+    8: { name: '第8世代', games: 'SW/SH・BDSP・レジェンズ アルセウス', color: '#7040D0' },
+    9: { name: '第9世代', games: 'スカーレット・バイオレット',       color: '#C03878' },
   };
 
   let currentType = 'all';
@@ -477,6 +548,30 @@
             </div>
           </div>`;
       }).join('');
+
+      // ── シリーズ情報 ──
+      const firstGenKey = sp?.generation?.name?.replace('generation-', '');
+      const firstGenNum = firstGenKey ? GEN_ROMAN[firstGenKey] : null;
+      const appearedGens = [...new Set(
+        pk.game_indices.map(gi => VERSION_TO_GEN[gi.version.name]).filter(Boolean)
+      )].sort((a, b) => a - b);
+
+      let seriesHtml = '';
+      if (firstGenNum && GEN_INFO[firstGenNum]) {
+        const gi = GEN_INFO[firstGenNum];
+        seriesHtml += `<div class="first-gen-badge" style="background:${gi.color}">
+          ★ 初登場: ${gi.name} <small>${gi.games}</small>
+        </div>`;
+      }
+      if (appearedGens.length > 0) {
+        seriesHtml += `<div id="pokemon-generations">${
+          appearedGens.map(g => {
+            const gi = GEN_INFO[g];
+            return gi ? `<span class="gen-badge" style="background:${gi.color}">${gi.name}</span>` : '';
+          }).join('')
+        }</div>`;
+      }
+      document.getElementById('pokemon-series').innerHTML = seriesHtml;
 
     } catch (err) {
       console.error(err);
