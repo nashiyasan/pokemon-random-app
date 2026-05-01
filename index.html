@@ -295,6 +295,82 @@
     }
 
     .hint { font-size: .68rem; color: rgba(255,255,255,.22); letter-spacing: 1px; }
+
+    /* ── 検索ボックス ── */
+    #search-wrap {
+      position: relative; width: 340px; max-width: 100%;
+      margin-bottom: 22px; z-index: 10;
+    }
+
+    .search-icon {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      color: rgba(255,255,255,.35); pointer-events: none; font-size: 1rem;
+    }
+
+    #search-input {
+      width: 100%; padding: 12px 44px 12px 42px;
+      background: rgba(255,255,255,.07);
+      border: 1.5px solid rgba(255,255,255,.12);
+      border-radius: 16px; color: #fff;
+      font-family: 'Nunito', sans-serif; font-size: .93rem; font-weight: 700;
+      outline: none; transition: all .2s;
+    }
+    #search-input::placeholder { color: rgba(255,255,255,.28); font-weight: 600; }
+    #search-input:focus {
+      border-color: var(--tc);
+      background: rgba(255,255,255,.1);
+      box-shadow: 0 0 0 3px rgba(var(--tc-r),var(--tc-g),var(--tc-b),.2);
+    }
+    #search-input.error {
+      border-color: #e63946;
+      box-shadow: 0 0 0 3px rgba(230,57,70,.2);
+      animation: shake .35s ease;
+    }
+    @keyframes shake {
+      0%,100%{transform:translateX(0)}
+      25%{transform:translateX(-6px)}
+      75%{transform:translateX(6px)}
+    }
+
+    #search-clear {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      color: rgba(255,255,255,.35); font-size: 1rem; padding: 4px 6px;
+      border-radius: 50%; transition: all .15s; display: none;
+      line-height: 1;
+    }
+    #search-clear:hover { color: #fff; background: rgba(255,255,255,.1); }
+
+    #search-dropdown {
+      position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+      background: #1c1f2e; border: 1px solid rgba(255,255,255,.1);
+      border-radius: 16px; overflow: hidden;
+      box-shadow: 0 16px 48px rgba(0,0,0,.6);
+      max-height: 240px; overflow-y: auto; display: none; z-index: 100;
+    }
+    #search-dropdown::-webkit-scrollbar { width: 4px; }
+    #search-dropdown::-webkit-scrollbar-track { background: transparent; }
+    #search-dropdown::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+
+    .dd-item {
+      padding: 10px 16px; cursor: pointer;
+      display: flex; align-items: center; gap: 12px;
+      transition: background .12s; border-bottom: 1px solid rgba(255,255,255,.04);
+    }
+    .dd-item:last-child { border-bottom: none; }
+    .dd-item:hover, .dd-item.focused { background: rgba(255,255,255,.07); }
+
+    .dd-num {
+      font-size: .72rem; font-weight: 700; color: rgba(255,255,255,.3);
+      min-width: 36px; font-family: 'Fredoka One', cursive;
+    }
+    .dd-name { font-size: .88rem; font-weight: 800; color: rgba(255,255,255,.85); text-transform: capitalize; }
+    .dd-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    .dd-empty {
+      padding: 16px; text-align: center;
+      font-size: .82rem; color: rgba(255,255,255,.3); font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -322,6 +398,14 @@
   </div>
   <p class="subtitle">Random Pokémon Explorer</p>
 </header>
+
+<div id="search-wrap">
+  <span class="search-icon">🔍</span>
+  <input id="search-input" type="text"
+         placeholder="名前（英語）または図鑑番号で検索..." autocomplete="off" spellcheck="false">
+  <button id="search-clear">✕</button>
+  <div id="search-dropdown"></div>
+</div>
 
 <div id="type-filters">
   <button class="type-btn active" data-type="all" style="background:#3a3d52;color:#fff;">すべて</button>
@@ -553,15 +637,93 @@
 
   /* ═══ ローディング制御 ═══ */
   function setLoading(on) {
-    document.getElementById('spinner').style.display      = on ? 'block' : 'none';
-    document.getElementById('pokemon-sprite').style.display = on ? 'none' : 'block';
+    document.getElementById('spinner').style.display        = on ? 'block' : 'none';
+    document.getElementById('pokemon-sprite').style.display = on ? 'none'  : 'block';
     if (on) {
       document.getElementById('card-body').style.visibility = 'hidden';
       document.getElementById('error-msg').style.display    = 'none';
     }
   }
 
-  /* ═══ メイン表示処理 ═══ */
+  /* ═══ ポケモン表示（共通） ═══ */
+  function displayPokemon(pk, sp) {
+    const jaName = sp
+      ? (sp.names.find(n=>n.language.name==='ja-Hrkt')?.name
+        || sp.names.find(n=>n.language.name==='ja')?.name
+        || pk.name)
+      : pk.name;
+
+    const primaryType  = pk.types[0].type.name;
+    const primaryColor = TYPE_DATA[primaryType]?.color ?? '#888';
+
+    setTypeColor(primaryColor);
+    document.getElementById('card-header').style.background =
+      `linear-gradient(150deg, ${primaryColor} 0%, rgba(10,12,20,.88) 100%)`;
+    document.getElementById('pokemon-number').textContent = `#${String(pk.id).padStart(3,'0')}`;
+
+    const spriteUrl = pk.sprites.other?.['official-artwork']?.front_default
+                   || pk.sprites.front_default;
+    const sprite = document.getElementById('pokemon-sprite');
+    const reveal = () => {
+      setLoading(false);
+      document.getElementById('card-body').style.visibility = 'visible';
+    };
+    sprite.onload  = reveal;
+    sprite.onerror = reveal;
+    sprite.src = spriteUrl;
+
+    document.getElementById('pokemon-name-ja').textContent = jaName;
+    document.getElementById('pokemon-name-en').textContent = pk.name;
+
+    document.getElementById('pokemon-types').innerHTML = pk.types.map(t => {
+      const ti = TYPE_DATA[t.type.name] || {ja:t.type.name, color:'#888'};
+      return `<span class="type-badge" style="background:${ti.color};color:${isLight(ti.color)?'#222':'#fff'}">${ti.ja}</span>`;
+    }).join('');
+
+    document.getElementById('pokemon-info').innerHTML = `
+      <div class="info-item">
+        <span class="info-label">たかさ</span>
+        <span class="info-value">${(pk.height/10).toFixed(1)} m</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">おもさ</span>
+        <span class="info-value">${(pk.weight/10).toFixed(1)} kg</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">世代</span>
+        <span class="info-value">Gen ${sp ? GEN_ROMAN[sp.generation.name.replace('generation-','')] ?? '?' : '?'}</span>
+      </div>`;
+
+    document.getElementById('radar-wrap').innerHTML = buildRadar(pk.stats, primaryColor);
+
+    const firstGenKey = sp?.generation?.name?.replace('generation-','');
+    const firstGenNum = firstGenKey ? GEN_ROMAN[firstGenKey] : null;
+    const appearedGens = [...new Set(
+      pk.game_indices.map(gi => VERSION_TO_GEN[gi.version.name]).filter(Boolean)
+    )].sort((a,b) => a-b);
+
+    let seriesHtml = '';
+    if (firstGenNum && GEN_INFO[firstGenNum]) {
+      const gi = GEN_INFO[firstGenNum];
+      seriesHtml += `<div class="first-gen-badge" style="background:${gi.color}">
+        <span class="fg-star">★</span>
+        <div class="fg-info">
+          <span class="fg-name">初登場: ${gi.name}</span>
+          <span class="fg-games">${gi.games}</span>
+        </div>
+      </div>`;
+    }
+    if (appearedGens.length) {
+      seriesHtml += `<div id="pokemon-generations">${
+        appearedGens.map(g => GEN_INFO[g]
+          ? `<span class="gen-badge" style="background:${GEN_INFO[g].color}">${GEN_INFO[g].name}</span>`
+          : '').join('')
+      }</div>`;
+    }
+    document.getElementById('series-section').innerHTML = seriesHtml;
+  }
+
+  /* ═══ ランダム表示 ═══ */
   let currentType = 'all';
   let isLoading   = false;
 
@@ -570,110 +732,153 @@
     isLoading = true;
     document.getElementById('random-btn').disabled = true;
     setLoading(true);
-
     try {
       const id = await getRandomId();
-      document.getElementById('pokemon-number').textContent = `#${String(id).padStart(3,'0')}`;
-
       const [pkRes, spRes] = await Promise.allSettled([
         fetch(`https://pokeapi.co/api/v2/pokemon/${id}`).then(r=>r.json()),
         fetch(`https://pokeapi.co/api/v2/pokemon-species/${id}`).then(r=>r.json()),
       ]);
-
       if (pkRes.status === 'rejected') throw new Error('fetch failed');
-      const pk = pkRes.value;
-      const sp = spRes.status === 'fulfilled' ? spRes.value : null;
-
-      const jaName = sp
-        ? (sp.names.find(n=>n.language.name==='ja-Hrkt')?.name
-          || sp.names.find(n=>n.language.name==='ja')?.name
-          || pk.name)
-        : pk.name;
-
-      const primaryType  = pk.types[0].type.name;
-      const primaryColor = TYPE_DATA[primaryType]?.color ?? '#888';
-
-      /* カラー更新 */
-      setTypeColor(primaryColor);
-      document.getElementById('card-header').style.background =
-        `linear-gradient(150deg, ${primaryColor} 0%, rgba(10,12,20,.88) 100%)`;
-
-      /* スプライト */
-      const spriteUrl = pk.sprites.other?.['official-artwork']?.front_default
-                     || pk.sprites.front_default;
-      const sprite = document.getElementById('pokemon-sprite');
-      sprite.onload = () => {
-        setLoading(false);
-        document.getElementById('card-body').style.visibility = 'visible';
-      };
-      sprite.onerror = () => {
-        setLoading(false);
-        document.getElementById('card-body').style.visibility = 'visible';
-      };
-      sprite.src = spriteUrl;
-
-      /* テキスト */
-      document.getElementById('pokemon-name-ja').textContent = jaName;
-      document.getElementById('pokemon-name-en').textContent = pk.name;
-
-      document.getElementById('pokemon-types').innerHTML = pk.types.map(t => {
-        const ti = TYPE_DATA[t.type.name] || {ja:t.type.name, color:'#888'};
-        return `<span class="type-badge" style="background:${ti.color};color:${isLight(ti.color)?'#222':'#fff'}">${ti.ja}</span>`;
-      }).join('');
-
-      document.getElementById('pokemon-info').innerHTML = `
-        <div class="info-item">
-          <span class="info-label">たかさ</span>
-          <span class="info-value">${(pk.height/10).toFixed(1)} m</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">おもさ</span>
-          <span class="info-value">${(pk.weight/10).toFixed(1)} kg</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">世代</span>
-          <span class="info-value">Gen ${sp ? GEN_ROMAN[sp.generation.name.replace('generation-','')] ?? '?' : '?'}</span>
-        </div>`;
-
-      /* レーダーチャート */
-      document.getElementById('radar-wrap').innerHTML = buildRadar(pk.stats, primaryColor);
-
-      /* シリーズ情報 */
-      const firstGenKey = sp?.generation?.name?.replace('generation-','');
-      const firstGenNum = firstGenKey ? GEN_ROMAN[firstGenKey] : null;
-      const appearedGens = [...new Set(
-        pk.game_indices.map(gi => VERSION_TO_GEN[gi.version.name]).filter(Boolean)
-      )].sort((a,b) => a-b);
-
-      let seriesHtml = '';
-      if (firstGenNum && GEN_INFO[firstGenNum]) {
-        const gi = GEN_INFO[firstGenNum];
-        seriesHtml += `<div class="first-gen-badge" style="background:${gi.color}">
-          <span class="fg-star">★</span>
-          <div class="fg-info">
-            <span class="fg-name">初登場: ${gi.name}</span>
-            <span class="fg-games">${gi.games}</span>
-          </div>
-        </div>`;
-      }
-      if (appearedGens.length) {
-        seriesHtml += `<div id="pokemon-generations">${
-          appearedGens.map(g => GEN_INFO[g]
-            ? `<span class="gen-badge" style="background:${GEN_INFO[g].color}">${GEN_INFO[g].name}</span>`
-            : '').join('')
-        }</div>`;
-      }
-      document.getElementById('series-section').innerHTML = seriesHtml;
-
+      displayPokemon(pkRes.value, spRes.status === 'fulfilled' ? spRes.value : null);
     } catch (e) {
       console.error(e);
       setLoading(false);
+      document.getElementById('error-msg').style.display = 'block';
+    }
+    isLoading = false;
+    document.getElementById('random-btn').disabled = false;
+  }
+
+  /* ═══ 検索機能 ═══ */
+  let pokemonList  = null;   // { name, id }[]
+  let ddFocusIndex = -1;
+
+  async function loadPokemonList() {
+    if (pokemonList) return;
+    const res  = await fetch('https://pokeapi.co/api/v2/pokemon?limit=1025');
+    const data = await res.json();
+    pokemonList = data.results.map(p => ({
+      name: p.name,
+      id: parseInt(p.url.split('/').slice(-2,-1)[0]),
+    }));
+  }
+
+  function renderDropdown(items) {
+    const dd = document.getElementById('search-dropdown');
+    if (!items) { dd.style.display = 'none'; return; }
+    if (items.length === 0) {
+      dd.innerHTML = `<div class="dd-empty">見つかりませんでした</div>`;
+      dd.style.display = 'block';
+      return;
+    }
+    dd.innerHTML = items.map((p, i) => {
+      const typeColor = '#888';  // type color unknown at list stage
+      return `<div class="dd-item" data-name="${p.name}" data-idx="${i}">
+        <span class="dd-num">#${String(p.id).padStart(3,'0')}</span>
+        <span class="dd-name">${p.name}</span>
+      </div>`;
+    }).join('');
+    ddFocusIndex = -1;
+    dd.style.display = 'block';
+  }
+
+  function closeDropdown() {
+    document.getElementById('search-dropdown').style.display = 'none';
+    ddFocusIndex = -1;
+  }
+
+  async function searchByQuery(query) {
+    if (isLoading) return;
+    isLoading = true;
+    document.getElementById('random-btn').disabled = true;
+    setLoading(true);
+    closeDropdown();
+
+    const input = document.getElementById('search-input');
+    input.classList.remove('error');
+
+    try {
+      const q = query.toLowerCase().trim();
+      const pkRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${q}`);
+      if (!pkRes.ok) throw new Error('not found');
+      const pk = await pkRes.json();
+      const sp = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${pk.id}`)
+        .then(r => r.json()).catch(() => null);
+      displayPokemon(pk, sp);
+    } catch (e) {
+      console.error(e);
+      setLoading(false);
+      input.classList.add('error');
+      setTimeout(() => input.classList.remove('error'), 800);
+      document.getElementById('error-msg').textContent = `「${query}」は見つかりませんでした`;
       document.getElementById('error-msg').style.display = 'block';
     }
 
     isLoading = false;
     document.getElementById('random-btn').disabled = false;
   }
+
+  /* 検索 イベント */
+  const searchInput = document.getElementById('search-input');
+
+  searchInput.addEventListener('focus', () => loadPokemonList());
+
+  searchInput.addEventListener('input', e => {
+    const val = e.target.value.trim();
+    document.getElementById('search-clear').style.display = val ? 'block' : 'none';
+    if (!val) { closeDropdown(); return; }
+    if (!pokemonList) return;
+    const q = val.toLowerCase();
+    const hits = pokemonList
+      .filter(p => p.name.includes(q) || String(p.id).startsWith(q))
+      .slice(0, 9);
+    renderDropdown(hits.length ? hits : []);
+  });
+
+  searchInput.addEventListener('keydown', e => {
+    const dd = document.getElementById('search-dropdown');
+    const items = dd.querySelectorAll('.dd-item');
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      ddFocusIndex = Math.min(ddFocusIndex + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('focused', i === ddFocusIndex));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      ddFocusIndex = Math.max(ddFocusIndex - 1, -1);
+      items.forEach((el, i) => el.classList.toggle('focused', i === ddFocusIndex));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (ddFocusIndex >= 0 && items[ddFocusIndex]) {
+        const name = items[ddFocusIndex].dataset.name;
+        searchInput.value = name;
+        searchByQuery(name);
+      } else if (searchInput.value.trim()) {
+        searchByQuery(searchInput.value.trim());
+      }
+    } else if (e.key === 'Escape') {
+      closeDropdown();
+    }
+  });
+
+  document.getElementById('search-dropdown').addEventListener('click', e => {
+    const item = e.target.closest('.dd-item');
+    if (!item) return;
+    searchInput.value = item.dataset.name;
+    document.getElementById('search-clear').style.display = 'block';
+    searchByQuery(item.dataset.name);
+  });
+
+  document.getElementById('search-clear').addEventListener('click', () => {
+    searchInput.value = '';
+    document.getElementById('search-clear').style.display = 'none';
+    closeDropdown();
+    searchInput.focus();
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#search-wrap')) closeDropdown();
+  });
 
   /* ═══ ホログラムシマー ═══ */
   document.getElementById('pokemon-card').addEventListener('mousemove', e => {
@@ -684,7 +889,7 @@
     e.currentTarget.style.setProperty('--my', y+'%');
   });
 
-  /* ═══ イベント ═══ */
+  /* ═══ その他イベント ═══ */
   document.getElementById('type-filters').addEventListener('click', e => {
     const btn = e.target.closest('.type-btn');
     if (!btn) return;
