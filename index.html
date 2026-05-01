@@ -362,10 +362,12 @@
 
     .dd-num {
       font-size: .72rem; font-weight: 700; color: rgba(255,255,255,.3);
-      min-width: 36px; font-family: 'Fredoka One', cursive;
+      min-width: 36px; font-family: 'Fredoka One', cursive; flex-shrink: 0;
     }
-    .dd-name { font-size: .88rem; font-weight: 800; color: rgba(255,255,255,.85); text-transform: capitalize; }
-    .dd-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dd-names { display: flex; flex-direction: column; gap: 1px; }
+    .dd-ja  { font-size: .9rem;  font-weight: 800; color: rgba(255,255,255,.9); }
+    .dd-en  { font-size: .7rem;  font-weight: 600; color: rgba(255,255,255,.3); text-transform: capitalize; }
+    .dd-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
     .dd-empty {
       padding: 16px; text-align: center;
@@ -402,7 +404,7 @@
 <div id="search-wrap">
   <span class="search-icon">🔍</span>
   <input id="search-input" type="text"
-         placeholder="名前（英語）または図鑑番号で検索..." autocomplete="off" spellcheck="false">
+         placeholder="ポケモン名（例：ピカチュウ、25）" autocomplete="off" spellcheck="false">
   <button id="search-clear">✕</button>
   <div id="search-dropdown"></div>
 </div>
@@ -751,7 +753,13 @@
 
   /* ═══ 検索機能 ═══ */
   let pokemonList  = null;   // { name, id }[]
+  let jaNameMap    = null;   // jaName → id
+  let jaIdMap      = null;   // id → jaName
   let ddFocusIndex = -1;
+
+  function isJapanese(str) {
+    return /[぀-ヿ一-鿿]/.test(str);
+  }
 
   async function loadPokemonList() {
     if (pokemonList) return;
@@ -763,21 +771,50 @@
     }));
   }
 
+  async function loadJapaneseNames() {
+    if (jaNameMap) return;
+    try {
+      const res = await fetch('https://beta.pokeapi.co/graphql/v1beta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: `{
+          pokemon_v2_pokemonspeciesname(
+            where: {language_id: {_eq: 11}},
+            order_by: {pokemon_species_id: asc}
+          ) { name pokemon_species_id }
+        }` }),
+      });
+      const json = await res.json();
+      jaNameMap = {};
+      jaIdMap   = {};
+      for (const { name, pokemon_species_id: id } of json.data.pokemon_v2_pokemonspeciesname) {
+        if (id >= 1 && id <= 1025) {
+          jaNameMap[name] = id;
+          jaIdMap[id]     = name;
+        }
+      }
+    } catch (e) {
+      console.warn('Japanese names unavailable:', e);
+      jaNameMap = {};
+      jaIdMap   = {};
+    }
+  }
+
   function renderDropdown(items) {
     const dd = document.getElementById('search-dropdown');
-    if (!items) { dd.style.display = 'none'; return; }
-    if (items.length === 0) {
+    if (!items || items.length === 0) {
       dd.innerHTML = `<div class="dd-empty">見つかりませんでした</div>`;
       dd.style.display = 'block';
       return;
     }
-    dd.innerHTML = items.map((p, i) => {
-      const typeColor = '#888';  // type color unknown at list stage
-      return `<div class="dd-item" data-name="${p.name}" data-idx="${i}">
+    dd.innerHTML = items.map((p, i) => `
+      <div class="dd-item" data-id="${p.id}" data-idx="${i}">
         <span class="dd-num">#${String(p.id).padStart(3,'0')}</span>
-        <span class="dd-name">${p.name}</span>
-      </div>`;
-    }).join('');
+        <div class="dd-names">
+          <span class="dd-ja">${p.jaName || p.name}</span>
+          <span class="dd-en">${p.name}</span>
+        </div>
+      </div>`).join('');
     ddFocusIndex = -1;
     dd.style.display = 'block';
   }
@@ -787,58 +824,112 @@
     ddFocusIndex = -1;
   }
 
-  async function searchByQuery(query) {
+  async function searchById(id) {
     if (isLoading) return;
     isLoading = true;
     document.getElementById('random-btn').disabled = true;
     setLoading(true);
     closeDropdown();
-
-    const input = document.getElementById('search-input');
-    input.classList.remove('error');
-
+    document.getElementById('search-input').classList.remove('error');
     try {
-      const q = query.toLowerCase().trim();
-      const pkRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${q}`);
+      const [pkRes, spRes] = await Promise.allSettled([
+        fetch(`https://pokeapi.co/api/v2/pokemon/${id}`).then(r => { if(!r.ok) throw new Error(); return r.json(); }),
+        fetch(`https://pokeapi.co/api/v2/pokemon-species/${id}`).then(r => r.json()),
+      ]);
+      if (pkRes.status === 'rejected') throw new Error('not found');
+      displayPokemon(pkRes.value, spRes.status === 'fulfilled' ? spRes.value : null);
+    } catch (e) {
+      const query = document.getElementById('search-input').value;
+      setLoading(false);
+      const input = document.getElementById('search-input');
+      input.classList.add('error');
+      setTimeout(() => input.classList.remove('error'), 800);
+      document.getElementById('error-msg').textContent = `「${query}」は見つかりませんでした`;
+      document.getElementById('error-msg').style.display = 'block';
+    }
+    isLoading = false;
+    document.getElementById('random-btn').disabled = false;
+  }
+
+  async function searchByQuery(query) {
+    const q = query.trim();
+    if (!q) return;
+
+    // 図鑑番号
+    if (/^\d+$/.test(q)) { searchById(parseInt(q)); return; }
+
+    // 日本語名
+    if (isJapanese(q) && jaNameMap) {
+      const id = jaNameMap[q];
+      if (id) { searchById(id); return; }
+      // 完全一致なければ部分一致の先頭を使う
+      const hit = Object.entries(jaNameMap).find(([name]) => name.includes(q));
+      if (hit) { searchById(hit[1]); return; }
+    }
+
+    // 英語名（フォールバック）
+    if (isLoading) return;
+    isLoading = true;
+    document.getElementById('random-btn').disabled = true;
+    setLoading(true);
+    closeDropdown();
+    document.getElementById('search-input').classList.remove('error');
+    try {
+      const pkRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${q.toLowerCase()}`);
       if (!pkRes.ok) throw new Error('not found');
       const pk = await pkRes.json();
       const sp = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${pk.id}`)
         .then(r => r.json()).catch(() => null);
       displayPokemon(pk, sp);
     } catch (e) {
-      console.error(e);
       setLoading(false);
+      const input = document.getElementById('search-input');
       input.classList.add('error');
       setTimeout(() => input.classList.remove('error'), 800);
-      document.getElementById('error-msg').textContent = `「${query}」は見つかりませんでした`;
+      document.getElementById('error-msg').textContent = `「${q}」は見つかりませんでした`;
       document.getElementById('error-msg').style.display = 'block';
     }
-
     isLoading = false;
     document.getElementById('random-btn').disabled = false;
   }
 
-  /* 検索 イベント */
+  /* 検索イベント */
   const searchInput = document.getElementById('search-input');
 
-  searchInput.addEventListener('focus', () => loadPokemonList());
+  searchInput.addEventListener('focus', () => {
+    Promise.all([loadPokemonList(), loadJapaneseNames()]);
+  });
 
   searchInput.addEventListener('input', e => {
     const val = e.target.value.trim();
     document.getElementById('search-clear').style.display = val ? 'block' : 'none';
     if (!val) { closeDropdown(); return; }
-    if (!pokemonList) return;
-    const q = val.toLowerCase();
-    const hits = pokemonList
-      .filter(p => p.name.includes(q) || String(p.id).startsWith(q))
-      .slice(0, 9);
-    renderDropdown(hits.length ? hits : []);
+
+    if (isJapanese(val)) {
+      if (!jaNameMap) return;
+      const hits = Object.entries(jaNameMap)
+        .filter(([name]) => name.includes(val))
+        .sort(([,a],[,b]) => a - b)
+        .slice(0, 9)
+        .map(([jaName, id]) => ({
+          id, jaName,
+          name: pokemonList?.find(p => p.id === id)?.name ?? String(id),
+        }));
+      renderDropdown(hits.length ? hits : []);
+    } else {
+      if (!pokemonList) return;
+      const q = val.toLowerCase();
+      const hits = pokemonList
+        .filter(p => p.name.includes(q) || String(p.id).startsWith(q))
+        .slice(0, 9)
+        .map(p => ({ id: p.id, name: p.name, jaName: jaIdMap?.[p.id] ?? '' }));
+      renderDropdown(hits.length ? hits : []);
+    }
   });
 
   searchInput.addEventListener('keydown', e => {
-    const dd = document.getElementById('search-dropdown');
+    const dd    = document.getElementById('search-dropdown');
     const items = dd.querySelectorAll('.dd-item');
-
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       ddFocusIndex = Math.min(ddFocusIndex + 1, items.length - 1);
@@ -850,11 +941,11 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (ddFocusIndex >= 0 && items[ddFocusIndex]) {
-        const name = items[ddFocusIndex].dataset.name;
-        searchInput.value = name;
-        searchByQuery(name);
-      } else if (searchInput.value.trim()) {
-        searchByQuery(searchInput.value.trim());
+        const id = parseInt(items[ddFocusIndex].dataset.id);
+        searchInput.value = jaIdMap?.[id] ?? pokemonList?.find(p=>p.id===id)?.name ?? String(id);
+        searchById(id);
+      } else if (val.trim()) {
+        searchByQuery(val.trim());
       }
     } else if (e.key === 'Escape') {
       closeDropdown();
@@ -864,9 +955,10 @@
   document.getElementById('search-dropdown').addEventListener('click', e => {
     const item = e.target.closest('.dd-item');
     if (!item) return;
-    searchInput.value = item.dataset.name;
+    const id = parseInt(item.dataset.id);
+    searchInput.value = jaIdMap?.[id] ?? pokemonList?.find(p=>p.id===id)?.name ?? String(id);
     document.getElementById('search-clear').style.display = 'block';
-    searchByQuery(item.dataset.name);
+    searchById(id);
   });
 
   document.getElementById('search-clear').addEventListener('click', () => {
